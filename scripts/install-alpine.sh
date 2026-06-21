@@ -121,19 +121,29 @@ detect_arch() {
     log_info "Detected architecture: $ARCH ($MACHINE)"
 }
 
-# ── Check dependencies ────────────────────────────────────────────────────────
+# ── Check and install dependencies ────────────────────────────────────────────
 check_deps() {
-    local missing=""
-    for cmd in git rc-service rc-update; do
-        if ! command -v "$cmd" >/dev/null 2>&1; then
-            missing="$missing $cmd"
-        fi
-    done
+    local need_git=false need_openrc=false
 
-    if [ -n "$missing" ]; then
-        log_error "Missing required commands:$missing"
-        log_info "Install with: apk add git openrc"
-        exit 1
+    if ! command -v git >/dev/null 2>&1; then
+        need_git=true
+    fi
+    if ! command -v rc-service >/dev/null 2>&1 || ! command -v rc-update >/dev/null 2>&1; then
+        need_openrc=true
+    fi
+
+    if $need_git || $need_openrc; then
+        local packages=""
+        $need_git && packages="$packages git"
+        $need_openrc && packages="$packages openrc"
+
+        log_info "Installing missing dependencies:$packages"
+        apk add --no-cache $packages
+        if [ $? -ne 0 ]; then
+            log_error "Failed to install dependencies. Run manually: apk add$packages"
+            exit 1
+        fi
+        log_info "Dependencies installed successfully"
     fi
 }
 
