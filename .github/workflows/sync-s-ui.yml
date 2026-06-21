@@ -14,8 +14,10 @@ jobs:
     steps:
       - name: Check latest s-ui release
         id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LATEST=$(curl -s https://api.github.com/repos/alireza0/s-ui/releases/latest | jq -r '.tag_name')
+          LATEST=$(gh release view --repo alireza0/s-ui --json tagName --jq '.tagName')
 
           if [ -z "$LATEST" ] || [ "$LATEST" = "null" ]; then
             echo "Failed to fetch latest release tag"
@@ -23,8 +25,7 @@ jobs:
           fi
 
           # Check our current release
-          CURRENT=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/releases/latest 2>/dev/null | jq -r '.tag_name // "none"')
+          CURRENT=$(gh release view --repo ${{ github.repository }} --json tagName --jq '.tagName' 2>/dev/null || echo "none")
 
           echo "latest=$LATEST" >> $GITHUB_OUTPUT
           echo "current=$CURRENT" >> $GITHUB_OUTPUT
