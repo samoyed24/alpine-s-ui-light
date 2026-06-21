@@ -139,30 +139,28 @@ get_version() {
     log_info "Target version: $VERSION"
 }
 
-# ── Download and extract ─────────────────────────────────────────────────────
-download_and_extract() {
-    local asset_name="s-ui-linux-${ARCH}.tar.gz"
-    local download_url="https://github.com/$REPO/releases/download/$VERSION/$asset_name"
-    local tmp_file="/tmp/$asset_name"
+# ── Download files ────────────────────────────────────────────────────────────
+download_files() {
+    local base_url="https://github.com/$REPO/releases/download/$VERSION"
 
-    log_info "Downloading $asset_name..."
-    log_info "URL: $download_url"
+    log_info "Downloading s-ui $VERSION ($ARCH)..."
+    log_info "URL base: $base_url"
 
-    wget -q --show-progress -O "$tmp_file" "$download_url"
-    if [ $? -ne 0 ]; then
-        log_error "Download failed. Check if version $VERSION exists for $ARCH"
-        exit 1
-    fi
-
-    log_info "Extracting to $INSTALL_DIR..."
     mkdir -p "$INSTALL_DIR"
     mkdir -p "$DATA_DIR"
 
-    tar xzf "$tmp_file" -C "$INSTALL_DIR" --strip-components=1
-    rm -f "$tmp_file"
-
-    # Make binary executable
+    # Download main binary
+    log_info "Downloading sui..."
+    wget -q --show-progress -O "$INSTALL_DIR/sui" "$base_url/sui" || {
+        log_error "Failed to download sui. Check if version $VERSION exists for $ARCH"
+        exit 1
+    }
     chmod +x "$INSTALL_DIR/sui"
+
+    # Download optional management script
+    log_info "Downloading s-ui.sh..."
+    wget -q -O "$INSTALL_DIR/s-ui.sh" "$base_url/s-ui.sh" 2>/dev/null || true
+    chmod +x "$INSTALL_DIR/s-ui.sh" 2>/dev/null || true
 
     # Save version
     echo "$VERSION" > "$INSTALL_DIR/version.txt"
@@ -273,7 +271,7 @@ main() {
     detect_arch
     check_deps
     get_version
-    download_and_extract
+    download_files
     install_openrc_service
     enable_and_start
 

@@ -38,36 +38,50 @@ jobs:
             echo "::notice::Update available: $LATEST (current: $CURRENT)"
           fi
 
-      - name: Download s-ui binaries
+      - name: Download and extract s-ui binaries
         if: steps.check.outputs.needs_update == 'true'
         run: |
-          mkdir -p /tmp/s-ui
-          cd /tmp/s-ui
+          mkdir -p /tmp/s-ui-extracted
+          cd /tmp/s-ui-extracted
 
-          echo "Downloading amd64..."
-          curl -sL "https://github.com/alireza0/s-ui/releases/download/${{ steps.check.outputs.latest }}/s-ui-linux-amd64.tar.gz" -o s-ui-linux-amd64.tar.gz
+          # Download and extract amd64
+          echo "Downloading and extracting amd64..."
+          curl -sL "https://github.com/alireza0/s-ui/releases/download/${{ steps.check.outputs.latest }}/s-ui-linux-amd64.tar.gz" | tar xz --strip-components=1
+          mkdir -p amd64
+          mv sui s-ui.sh s-ui.service amd64/ 2>/dev/null || true
+          echo "${{ steps.check.outputs.latest }}" > amd64/version.txt
 
-          echo "Downloading arm64..."
-          curl -sL "https://github.com/alireza0/s-ui/releases/download/${{ steps.check.outputs.latest }}/s-ui-linux-arm64.tar.gz" -o s-ui-linux-arm64.tar.gz
+          # Clean up for arm64
+          rm -f sui s-ui.sh s-ui.service
 
-          ls -lh
+          # Download and extract arm64
+          echo "Downloading and extracting arm64..."
+          curl -sL "https://github.com/alireza0/s-ui/releases/download/${{ steps.check.outputs.latest }}/s-ui-linux-arm64.tar.gz" | tar xz --strip-components=1
+          mkdir -p arm64
+          mv sui s-ui.sh s-ui.service arm64/ 2>/dev/null || true
+          echo "${{ steps.check.outputs.latest }}" > arm64/version.txt
+
+          echo "Extracted files:"
+          find . -type f -exec ls -lh {} \;
 
       - name: Create GitHub Release
         if: steps.check.outputs.needs_update == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd /tmp/s-ui
+          cd /tmp/s-ui-extracted
 
           # Delete existing release if it exists (for re-runs)
           gh release delete ${{ steps.check.outputs.latest }} --repo ${{ github.repository }} --yes 2>/dev/null || true
 
-          # Create new release with assets
+          # Create new release with all extracted files
           gh release create ${{ steps.check.outputs.latest }} \
             --repo ${{ github.repository }} \
             --title "s-ui ${{ steps.check.outputs.latest }}" \
-            --notes "Synced from alireza0/s-ui ${{ steps.check.outputs.latest }}" \
-            s-ui-linux-amd64.tar.gz \
-            s-ui-linux-arm64.tar.gz
+            --notes "Synced from alireza0/s-ui ${{ steps.check.outputs.latest }} (pre-extracted)" \
+            amd64/* \
+            arm64/*
 
           echo "Release created: ${{ steps.check.outputs.latest }}"
+          echo "Files uploaded:"
+          ls -lh amd64/ arm64/
