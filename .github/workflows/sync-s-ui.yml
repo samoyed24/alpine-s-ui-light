@@ -1,0 +1,71 @@
+name: Sync s-ui binaries
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check latest release
+        id: check
+        run: |
+          LATEST=$(curl -s https://api.github.com/repos/alireza0/s-ui/releases/latest | jq -r '.tag_name')
+
+          if [ -z "$LATEST" ] || [ "$LATEST" = "null" ]; then
+            echo "Failed to fetch latest release tag"
+            exit 1
+          fi
+
+          AMD64_VER=$(cat amd64/version.txt 2>/dev/null || echo "none")
+          ARM64_VER=$(cat arm64/version.txt 2>/dev/null || echo "none")
+
+          echo "latest=$LATEST" >> $GITHUB_OUTPUT
+          echo "amd64_current=$AMD64_VER" >> $GITHUB_OUTPUT
+          echo "arm64_current=$ARM64_VER" >> $GITHUB_OUTPUT
+
+          if [ "$AMD64_VER" = "$LATEST" ] && [ "$ARM64_VER" = "$LATEST" ]; then
+            echo "needs_update=false" >> $GITHUB_OUTPUT
+            echo "::notice::All up to date ($LATEST)"
+          else
+            echo "needs_update=true" >> $GITHUB_OUTPUT
+            echo "::notice::Update needed: $LATEST (amd64: $AMD64_VER, arm64: $ARM64_VER)"
+          fi
+
+      - name: Download and extract amd64
+        if: steps.check.outputs.needs_update == 'true' && steps.check.outputs.amd64_current != steps.check.outputs.latest
+        run: |
+          mkdir -p amd64
+          curl -sL "https://github.com/alireza0/s-ui/releases/download/${{ steps.check.outputs.latest }}/s-ui-linux-amd64.tar.gz" -o /tmp/s-ui-amd64.tar.gz
+          tar xzf /tmp/s-ui-amd64.tar.gz -C amd64 --strip-components=1
+          rm /tmp/s-ui-amd64.tar.gz
+          echo "${{ steps.check.outputs.latest }}" > amd64/version.txt
+          echo "amd64 updated to ${{ steps.check.outputs.latest }}"
+
+      - name: Download and extract arm64
+        if: steps.check.outputs.needs_update == 'true' && steps.check.outputs.arm64_current != steps.check.outputs.latest
+        run: |
+          mkdir -p arm64
+          curl -sL "https://github.com/alireza0/s-ui/releases/download/${{ steps.check.outputs.latest }}/s-ui-linux-arm64.tar.gz" -o /tmp/s-ui-arm64.tar.gz
+          tar xzf /tmp/s-ui-arm64.tar.gz -C arm64 --strip-components=1
+          rm /tmp/s-ui-arm64.tar.gz
+          echo "${{ steps.check.outputs.latest }}" > arm64/version.txt
+          echo "arm64 updated to ${{ steps.check.outputs.latest }}"
+
+      - name: Commit and push
+        if: steps.check.outputs.needs_update == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add amd64/ arm64/
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "chore: update s-ui to ${{ steps.check.outputs.latest }}"
+          git push
