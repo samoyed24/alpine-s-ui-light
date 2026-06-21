@@ -1,23 +1,24 @@
 #!/bin/sh
 #
-# install-alpine.sh — Install s-ui on Alpine Linux from this repository
+# install-alpine.sh — Install s-ui on Alpine Linux
+#
+# Downloads binaries from GitHub Releases (no git needed for large files).
 #
 # Usage:
-#   ./install-alpine.sh <repo_url> [OPTIONS]
-#
-# Arguments:
-#   repo_url          Git repository URL containing s-ui binaries
+#   ./install-alpine.sh [OPTIONS]
 #
 # Options:
-#   --arch <arch>     Force architecture (amd64|arm64). Auto-detected by default.
-#   --install-dir <d> Installation directory. Default: /usr/local/s-ui
-#   --branch <b>      Git branch to track. Default: main
-#   --uninstall       Remove s-ui, OpenRC service, and data
-#   -h, --help        Show this help
+#   --repo <user/repo>  GitHub repo (default: samoyed24/alpine-s-ui-light)
+#   --arch <arch>       Force architecture (amd64|arm64). Auto-detected by default.
+#   --install-dir <dir> Installation directory. Default: /usr/local/s-ui
+#   --version <ver>     Specific version to install (default: latest)
+#   --uninstall         Remove s-ui and OpenRC service
+#   -h, --help          Show this help
 #
 # Examples:
-#   ./install-alpine.sh https://github.com/user/alpine-s-ui-light.git
-#   ./install-alpine.sh https://github.com/user/alpine-s-ui-light.git --arch arm64
+#   ./install-alpine.sh
+#   ./install-alpine.sh --arch arm64
+#   ./install-alpine.sh --repo myuser/myrepo --version v1.4.2
 #   ./install-alpine.sh --uninstall
 
 set -e
@@ -33,51 +34,30 @@ log_warn()  { printf "${YELLOW}[WRN]${NC} %s\n" "$*"; }
 log_error() { printf "${RED}[ERR]${NC} %s\n" "$*"; }
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
+REPO="samoyed24/alpine-s-ui-light"
 INSTALL_DIR="/usr/local/s-ui"
 DATA_DIR="/etc/s-ui"
 LOG_FILE="/var/log/s-ui.log"
 INIT_SCRIPT="/etc/init.d/s-ui"
-REPO_DIR="/opt/alpine-s-ui-light"
-BRANCH="main"
 ARCH=""
-REPO_URL=""
+VERSION="latest"
 UNINSTALL=false
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
 while [ $# -gt 0 ]; do
     case "$1" in
-        --arch)
-            ARCH="$2"
-            shift 2
-            ;;
-        --install-dir)
-            INSTALL_DIR="$2"
-            shift 2
-            ;;
-        --branch)
-            BRANCH="$2"
-            shift 2
-            ;;
-        --uninstall)
-            UNINSTALL=true
-            shift
-            ;;
+        --repo)        REPO="$2"; shift 2 ;;
+        --arch)        ARCH="$2"; shift 2 ;;
+        --install-dir) INSTALL_DIR="$2"; shift 2 ;;
+        --version)     VERSION="$2"; shift 2 ;;
+        --uninstall)   UNINSTALL=true; shift ;;
         -h|--help)
             sed -n '3,/^$/s/^# \?//p' "$0"
             exit 0
             ;;
-        -*)
+        *)
             log_error "Unknown option: $1"
             exit 1
-            ;;
-        *)
-            if [ -z "$REPO_URL" ]; then
-                REPO_URL="$1"
-            else
-                log_error "Unexpected argument: $1"
-                exit 1
-            fi
-            shift
             ;;
     esac
 done
@@ -121,20 +101,20 @@ detect_arch() {
     log_info "Detected architecture: $ARCH ($MACHINE)"
 }
 
-# ── Check and install dependencies ────────────────────────────────────────────
+# ── Check dependencies ────────────────────────────────────────────────────────
 check_deps() {
-    local need_git=false need_openrc=false
+    local need_wget=false need_openrc=false
 
-    if ! command -v git >/dev/null 2>&1; then
-        need_git=true
+    if ! command -v wget >/dev/null 2>&1; then
+        need_wget=true
     fi
     if ! command -v rc-service >/dev/null 2>&1 || ! command -v rc-update >/dev/null 2>&1; then
         need_openrc=true
     fi
 
-    if $need_git || $need_openrc; then
+    if $need_wget || $need_openrc; then
         local packages=""
-        $need_git && packages="$packages git"
+        $need_wget && packages="$packages wget"
         $need_openrc && packages="$packages openrc"
 
         log_info "Installing missing dependencies:$packages"
@@ -145,6 +125,49 @@ check_deps() {
         fi
         log_info "Dependencies installed successfully"
     fi
+}
+
+# ── Get version ───────────────────────────────────────────────────────────────
+get_version() {
+    if [ "$VERSION" = "latest" ]; then
+        VERSION=$(wget -qO- "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | head -1 | sed 's/.*: "//;s/".*//')
+        if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+            log_error "Failed to fetch latest version from GitHub"
+            exit 1
+        fi
+    fi
+    log_info "Target version: $VERSION"
+}
+
+# ── Download and extract ─────────────────────────────────────────────────────
+download_and_extract() {
+    local asset_name="s-ui-linux-${ARCH}.tar.gz"
+    local download_url="https://github.com/$REPO/releases/download/$VERSION/$asset_name"
+    local tmp_file="/tmp/$asset_name"
+
+    log_info "Downloading $asset_name..."
+    log_info "URL: $download_url"
+
+    wget -q --show-progress -O "$tmp_file" "$download_url"
+    if [ $? -ne 0 ]; then
+        log_error "Download failed. Check if version $VERSION exists for $ARCH"
+        exit 1
+    fi
+
+    log_info "Extracting to $INSTALL_DIR..."
+    mkdir -p "$INSTALL_DIR"
+    mkdir -p "$DATA_DIR"
+
+    tar xzf "$tmp_file" -C "$INSTALL_DIR" --strip-components=1
+    rm -f "$tmp_file"
+
+    # Make binary executable
+    chmod +x "$INSTALL_DIR/sui"
+
+    # Save version
+    echo "$VERSION" > "$INSTALL_DIR/version.txt"
+
+    log_info "Installed s-ui $VERSION ($ARCH) to $INSTALL_DIR"
 }
 
 # ── Uninstall ─────────────────────────────────────────────────────────────────
@@ -165,9 +188,6 @@ do_uninstall() {
     # Remove install dir
     rm -rf "$INSTALL_DIR"
 
-    # Remove cloned repo
-    rm -rf "$REPO_DIR"
-
     # Ask about data
     if [ -d "$DATA_DIR" ]; then
         printf "Remove data directory %s? [y/N]: " "$DATA_DIR"
@@ -181,65 +201,6 @@ do_uninstall() {
     rm -f "$LOG_FILE"
     log_info "s-ui uninstalled successfully"
     exit 0
-}
-
-# ── Sync repository ───────────────────────────────────────────────────────────
-sync_repo() {
-    if [ -z "$REPO_URL" ]; then
-        log_error "Repository URL is required"
-        log_info "Usage: $0 <repo_url> [--arch amd64|arm64]"
-        exit 1
-    fi
-
-    mkdir -p "$(dirname "$REPO_DIR")"
-
-    if [ -d "$REPO_DIR/.git" ]; then
-        log_info "Updating existing repository..."
-        cd "$REPO_DIR"
-        git fetch origin "$BRANCH"
-        git reset --hard "origin/$BRANCH"
-    else
-        log_info "Cloning repository..."
-        git clone --branch "$BRANCH" --single-branch "$REPO_URL" "$REPO_DIR"
-        cd "$REPO_DIR"
-    fi
-
-    # Verify architecture directory exists
-    if [ ! -d "$REPO_DIR/$ARCH" ]; then
-        log_error "Architecture directory not found: $REPO_DIR/$ARCH"
-        exit 1
-    fi
-
-    # Check version
-    if [ -f "$REPO_DIR/$ARCH/version.txt" ]; then
-        REMOTE_VER=$(cat "$REPO_DIR/$ARCH/version.txt")
-        log_info "Remote version: $REMOTE_VER"
-    fi
-}
-
-# ── Install binary ────────────────────────────────────────────────────────────
-install_binary() {
-    log_info "Installing s-ui ($ARCH) to $INSTALL_DIR..."
-
-    mkdir -p "$INSTALL_DIR"
-    mkdir -p "$DATA_DIR"
-
-    # Copy files from repo to install dir
-    cp -f "$REPO_DIR/$ARCH/sui" "$INSTALL_DIR/sui"
-    chmod +x "$INSTALL_DIR/sui"
-
-    # Copy version
-    if [ -f "$REPO_DIR/$ARCH/version.txt" ]; then
-        cp -f "$REPO_DIR/$ARCH/version.txt" "$INSTALL_DIR/version.txt"
-    fi
-
-    # Copy optional s-ui.sh (management script, can be used for admin commands)
-    if [ -f "$REPO_DIR/$ARCH/s-ui.sh" ]; then
-        cp -f "$REPO_DIR/$ARCH/s-ui.sh" "$INSTALL_DIR/s-ui.sh"
-        chmod +x "$INSTALL_DIR/s-ui.sh"
-    fi
-
-    log_info "Binary installed to $INSTALL_DIR/sui"
 }
 
 # ── Create OpenRC service ─────────────────────────────────────────────────────
@@ -311,8 +272,8 @@ main() {
 
     detect_arch
     check_deps
-    sync_repo
-    install_binary
+    get_version
+    download_and_extract
     install_openrc_service
     enable_and_start
 
