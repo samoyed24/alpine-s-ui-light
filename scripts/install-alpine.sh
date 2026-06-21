@@ -149,17 +149,17 @@ download_files() {
     mkdir -p "$INSTALL_DIR"
     mkdir -p "$DATA_DIR"
 
-    # Download main binary
-    log_info "Downloading sui..."
-    wget -q --show-progress -O "$INSTALL_DIR/sui" "$base_url/sui" || {
-        log_error "Failed to download sui. Check if version $VERSION exists for $ARCH"
+    # Download main binary (with arch suffix)
+    log_info "Downloading sui-$ARCH..."
+    wget -q --show-progress -O "$INSTALL_DIR/sui" "$base_url/sui-$ARCH" || {
+        log_error "Failed to download sui-$ARCH. Check if version $VERSION exists"
         exit 1
     }
     chmod +x "$INSTALL_DIR/sui"
 
     # Download optional management script
-    log_info "Downloading s-ui.sh..."
-    wget -q -O "$INSTALL_DIR/s-ui.sh" "$base_url/s-ui.sh" 2>/dev/null || true
+    log_info "Downloading s-ui-$ARCH.sh..."
+    wget -q -O "$INSTALL_DIR/s-ui.sh" "$base_url/s-ui-$ARCH.sh" 2>/dev/null || true
     chmod +x "$INSTALL_DIR/s-ui.sh" 2>/dev/null || true
 
     # Save version

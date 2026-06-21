@@ -41,47 +41,55 @@ jobs:
       - name: Download and extract s-ui binaries
         if: steps.check.outputs.needs_update == 'true'
         run: |
-          mkdir -p /tmp/s-ui-extracted
-          cd /tmp/s-ui-extracted
+          mkdir -p /tmp/s-ui-release
+          cd /tmp/s-ui-release
 
           # Download and extract amd64
           echo "Downloading and extracting amd64..."
-          curl -sL "https://github.com/alireza0/s-ui/releases/download/${{ steps.check.outputs.latest }}/s-ui-linux-amd64.tar.gz" | tar xz --strip-components=1
-          mkdir -p amd64
-          mv sui s-ui.sh s-ui.service amd64/ 2>/dev/null || true
-          echo "${{ steps.check.outputs.latest }}" > amd64/version.txt
+          mkdir -p /tmp/extract-amd64
+          curl -sL "https://github.com/alireza0/s-ui/releases/download/${{ steps.check.outputs.latest }}/s-ui-linux-amd64.tar.gz" | tar xz -C /tmp/extract-amd64 --strip-components=1
 
-          # Clean up for arm64
-          rm -f sui s-ui.sh s-ui.service
+          # Rename files with arch prefix to avoid conflicts
+          mv /tmp/extract-amd64/sui sui-amd64
+          mv /tmp/extract-amd64/s-ui.sh s-ui-amd64.sh
+          mv /tmp/extract-amd64/s-ui.service s-ui-amd64.service
+          echo "${{ steps.check.outputs.latest }}" > version-amd64.txt
 
           # Download and extract arm64
           echo "Downloading and extracting arm64..."
-          curl -sL "https://github.com/alireza0/s-ui/releases/download/${{ steps.check.outputs.latest }}/s-ui-linux-arm64.tar.gz" | tar xz --strip-components=1
-          mkdir -p arm64
-          mv sui s-ui.sh s-ui.service arm64/ 2>/dev/null || true
-          echo "${{ steps.check.outputs.latest }}" > arm64/version.txt
+          mkdir -p /tmp/extract-arm64
+          curl -sL "https://github.com/alireza0/s-ui/releases/download/${{ steps.check.outputs.latest }}/s-ui-linux-arm64.tar.gz" | tar xz -C /tmp/extract-arm64 --strip-components=1
 
-          echo "Extracted files:"
-          find . -type f -exec ls -lh {} \;
+          mv /tmp/extract-arm64/sui sui-arm64
+          mv /tmp/extract-arm64/s-ui.sh s-ui-arm64.sh
+          mv /tmp/extract-arm64/s-ui.service s-ui-arm64.service
+          echo "${{ steps.check.outputs.latest }}" > version-arm64.txt
+
+          echo "Files to upload:"
+          ls -lh
 
       - name: Create GitHub Release
         if: steps.check.outputs.needs_update == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd /tmp/s-ui-extracted
+          cd /tmp/s-ui-release
 
           # Delete existing release if it exists (for re-runs)
           gh release delete ${{ steps.check.outputs.latest }} --repo ${{ github.repository }} --yes 2>/dev/null || true
 
-          # Create new release with all extracted files
+          # Create new release with all files
           gh release create ${{ steps.check.outputs.latest }} \
             --repo ${{ github.repository }} \
             --title "s-ui ${{ steps.check.outputs.latest }}" \
             --notes "Synced from alireza0/s-ui ${{ steps.check.outputs.latest }} (pre-extracted)" \
-            amd64/* \
-            arm64/*
+            sui-amd64 \
+            sui-arm64 \
+            s-ui-amd64.sh \
+            s-ui-arm64.sh \
+            s-ui-amd64.service \
+            s-ui-arm64.service \
+            version-amd64.txt \
+            version-arm64.txt
 
           echo "Release created: ${{ steps.check.outputs.latest }}"
-          echo "Files uploaded:"
-          ls -lh amd64/ arm64/
